@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>釣行海況・出航判断ナビ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg-main: #f4f7f9;
+    --card-bg: #ffffff;
+    --primary: #0d47a1;
+    --c-blue: #ddebf7;
+    --c-orange: #fff2cc;
+    --c-pink: #f4cccc;
+    --c-sun: #ffd9d9;
+    --c-sat: #d9eaff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    margin: 0; padding: 0; background: var(--bg-main); color: #222;
+    font-size: 14px;
+  }
+  header {
+    background: var(--primary); color: #fff; padding: 10px 12px;
+    position: sticky; top: 0; z-index: 1000; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  }
+  .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .header-title { font-weight: bold; font-size: 16px; }
+  .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  button, select {
+    padding: 7px 10px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer;
+  }
+  select { background: #fff; color: #222; font-weight: bold; flex: 1; min-width: 140px; }
+  .btn-sub { background: rgba(255,255,255,0.2); color: #fff; border: 1px solid rgba(255,255,255,0.4); }
+  .btn-sub:active { background: rgba(255,255,255,0.4); }
+  .btn-accent { background: #ff9800; color: #fff; font-weight: bold; }
+
+  .panel {
+    display: none; background: #fff; padding: 12px; border-bottom: 2px solid #ccc;
+  }
+  .panel.active { display: block; }
+  #map { height: 280px; width: 100%; border-radius: 8px; margin-bottom: 8px; border: 1px solid #ccc; }
+  .input-row { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  .input-row input {
+    flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 5px; font-size: 13px; min-width: 120px;
+  }
+  .btn-exec { background: var(--primary); color: #fff; font-weight: bold; }
+
+  .tabs { display: flex; background: #e0e6ed; padding: 4px; gap: 4px; }
+  .tab {
+    flex: 1; text-align: center; padding: 8px; font-weight: bold; border-radius: 6px;
+    background: transparent; color: #555;
+  }
+  .tab.active { background: #fff; color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+
+  .status-bar { padding: 6px 12px; font-size: 12px; color: #555; display: flex; justify-content: space-between; }
+  .table-wrap {
+    overflow: auto; /* 縦横両方のスクロールをこの枠内で完結させる */
+    max-height: calc(100vh - 145px); /* 画面の高さから上のヘッダー・タブ分を引いた高さに固定 */
+    background: #fff;
+  }
+  table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 12px; }
+  th, td { border: 1px solid #d0d7de; padding: 6px 5px; text-align: center; }
+  tr.day-border td { border-top: 2.5px solid #4a5568; } /* ← 追加：日付の境目の上線を太く濃くする */
+  th { background: #f0f4f8; position: sticky; top: 0; z-index: 10; font-weight: bold; }
+  th:first-child, td:first-child { position: sticky; left: 0; z-index: 5; background: #fff; font-weight: bold; }
+  th:first-child { z-index: 15; background: #f0f4f8; }
+
+  .bg-blue { background-color: var(--c-blue) !important; }
+  .bg-orange { background-color: var(--c-orange) !important; }
+  .bg-pink { background-color: var(--c-pink) !important; }
+  .bg-sun { background-color: var(--c-sun) !important; }
+  .bg-sat { background-color: var(--c-sat) !important; }
+
+  .adv-cell { text-align: left; white-space: normal; min-width: 500px; font-size: 11px; line-height: 1.3; }
+  .loading { text-align: center; padding: 30px; font-weight: bold; color: var(--primary); }
+
+  .thresh-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; font-size: 12px; align-items: center; }
+  .thresh-grid input { width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 4px; text-align: right; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <div class="header-title">◇ 釣行海況ナビ</div>
+    <div class="btn-group">
+      <button class="btn-sub" onclick="togglePanel('mapPanel')">◇ 地図・地点</button>
+      <button class="btn-sub" onclick="getCurrentLocation()">◇ 現在地</button>
+      <button class="btn-sub" onclick="togglePanel('settingPanel')">◇ 判定基準</button>
+    </div>
+  </div>
+  <div class="btn-group">
+    <select id="pointSelect" onchange="onSelectPoint()"></select>
+    <button class="btn-accent" onclick="loadForecast()">◇ 更新</button>
+  </div>
+</header>
+
+<div id="mapPanel" class="panel">
+  <div style="font-size:12px; color:#444; margin-bottom:6px;">
+    ▼ 地図をタップしてポイント指定、またはGoogleマップのURL/座標を貼り付け
+  </div>
+  <div id="map"></div>
+  <div class="input-row">
+    <input type="text" id="gmapUrlInput" placeholder="GoogleマップURL または 35.56, 133.32">
+    <button class="btn-sub" style="background:#555;" onclick="parseGmapInput()">座標抽出</button>
+  </div>
+  <div class="input-row">
+    <input type="text" id="pointNameInput" placeholder="地点名（例：美保関沖）">
+    <input type="text" id="latLonDisplay" readonly style="background:#eee; flex:1.2;">
+    <button class="btn-exec" onclick="saveAndFetchPoint()">保存して予報表示</button>
+  </div>
+</div>
+
+<div id="settingPanel" class="panel">
+  <div style="font-weight:bold; margin-bottom:6px;">色分け判定基準（青＝安全 / 橙＝注意 / 桃＝警戒）</div>
+  <div class="thresh-grid" id="threshContainer"></div>
+  <div style="margin-top:10px; text-align:right;">
+    <button class="btn-sub" style="background:#777;" onclick="resetThresholds()">初期値に戻す</button>
+    <button class="btn-exec" onclick="saveThresholds()">設定を保存して再描画</button>
+  </div>
+</div>
+
+<div class="tabs">
+  <button id="tabStd" class="tab active" onclick="switchModel('std')">1週間予報（標準・高精度）</button>
+  <button id="tabEcmwf" class="tab" onclick="switchModel('ecmwf')">2週間予報（ECMWF）</button>
+</div>
+
+<div class="status-bar">
+  <span id="coordInfo">地点: 未選択</span>
+  <span id="updateTime"></span>
+</div>
+
+<div id="resultArea" class="table-wrap">
+  <div class="loading">データを読み込み中...</div>
+</div>
+
+<script>
+// ==========================================
+// 1. 初期データ・定数（Python / VBA移植）
+// ==========================================
+const DEFAULT_POINTS = [
+  { name: "和田礁", lat: 35.512, lon: 133.314 },
+  { name: "沖の御前", lat: 35.5895, lon: 133.351 },
+  { name: "赤碕沖", lat: 35.602, lon: 133.663 },
+  { name: "カンナカ", lat: 35.761, lon: 133.055 },
+  { name: "須佐沖", lat: 34.64, lon: 131.575 }
+];
+
+const DEFAULT_THRESHOLDS = {
+  score:  { label: "指数 (以上)", blue: 80, orange: 60, mode: "ge" },
+  wave:   { label: "波高m (以下)", blue: 0.6, orange: 1.0, mode: "le" },
+  wind:   { label: "風速m (以下)", blue: 4.0, orange: 6.0, mode: "le" },
+  gust:   { label: "最大瞬間m (以下)", blue: 7.0, orange: 10.0, mode: "le" },
+  precip: { label: "降水量mm (以下)", blue: 0.5, orange: 2.0, mode: "le" },
+  prob:   { label: "降水確率% (以下)", blue: 30, orange: 60, mode: "le" }
+};
+
+const HOLIDAYS = new Set([
+  "2026/01/01","2026/01/12","2026/02/11","2026/02/23","2026/03/20",
+  "2026/04/29","2026/05/03","2026/05/04","2026/05/05","2026/05/06",
+  "2026/07/20","2026/08/11","2026/09/21","2026/09/22","2026/09/23",
+  "2026/10/12","2026/11/03","2026/11/23",
+  "2027/01/01","2027/01/11","2027/02/11","2027/02/23","2027/03/21",
+  "2027/03/22","2027/04/29","2027/05/03","2027/05/04","2027/05/05",
+  "2027/07/19","2027/08/11","2027/09/20","2027/09/23","2027/10/11",
+  "2027/11/03","2027/11/23"
+]);
+
+let savedPoints = [...DEFAULT_POINTS];
+let thresholds = JSON.parse(localStorage.getItem("bw_thresholds")) || JSON.parse(JSON.stringify(DEFAULT_THRESHOLDS));
+let currentModel = "std";
+let cachedData = null;
+let map = null, marker = null;
+let selectedLat = savedPoints[0].lat;
+let selectedLon = savedPoints[0].lon;
+// ==========================================
+// 2. Pythonロジック完全移植（潮回り・天気・指数判定）
+// ==========================================
+function getTideName(dt) {
+  const baseNewMoon = new Date(2026, 10, 9, 16, 2);
+  const synodicMonth = 29.530588853;
+  const targetNoon = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12, 0);
+  let moonAge = ((targetNoon - baseNewMoon) / 86400000) % synodicMonth;
+  if (moonAge < 0) moonAge += synodicMonth;
+
+  if ((28.0 <= moonAge || moonAge < 2.5) || (13.2 <= moonAge && moonAge < 17.2)) return "大潮";
+  if ((2.5 <= moonAge && moonAge < 5.5) || (10.2 <= moonAge && moonAge < 13.2) ||
+      (17.2 <= moonAge && moonAge < 20.2) || (25.0 <= moonAge && moonAge < 28.0)) return "中潮";
+  if ((5.5 <= moonAge && moonAge < 8.2) || (20.2 <= moonAge && moonAge < 23.0)) return "小潮";
+  if ((8.2 <= moonAge && moonAge < 9.2) || (23.0 <= moonAge && moonAge < 24.0)) return "長潮";
+  return "若潮";
+}
+
+function degToDir(deg) {
+  if (deg === null || deg === undefined) return "-";
+  const dirs = [
+    "北", "北北東", "北東", "東北東",
+    "東", "東南東", "南東", "南南東",
+    "南", "南南西", "南西", "西南西",
+    "西", "西北西", "北西", "北北西"
+  ];
+  return dirs[Math.floor((deg + 11.25) / 22.5) % 16];
+}
+
+function codeToWeather(code) {
+  if (code === null || code === undefined) return "-";
+  if (code === 0) return "快晴";
+  if (code === 1 || code === 2) return "晴れ時々曇り";
+  if (code === 3) return "曇り";
+  if (code === 45 || code === 48) return "霧";
+  if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code)) return "雨";
+  if ([71, 73, 75, 85, 86].includes(code)) return "雪";
+  if ([95, 96, 99].includes(code)) return "雷雨";
+  return `コード(${code})`;
+}
+
+function calcIndexAndAdvice(rowWave, wind, gust, wCode, hour, wavePeriod, windWave, swellWave) {
+  if (wind === null || wind === undefined || rowWave === null || rowWave === undefined) {
+    return { score: "-", adv: "予報データなし" };
+  }
+  const wVal = wind;
+  const gVal = gust ?? 0;
+  let score = 100;
+
+  if (rowWave >= 1.5) score -= 60;
+  else if (rowWave >= 1.0) score -= 30;
+  else if (rowWave >= 0.7) score -= 15;
+  else if (rowWave >= 0.5) score -= 5;
+
+  const isShortPeriod = (wavePeriod !== null && wavePeriod !== undefined && wavePeriod <= 5.5);
+  const hasChoppyWave = (rowWave >= 0.7 || (windWave !== null && windWave !== undefined && windWave >= 0.6));
+  if (isShortPeriod && hasChoppyWave) score -= 15;
+
+  if (swellWave !== null && swellWave !== undefined && swellWave >= 0.8) score -= 10;
+
+  if (wVal >= 7) score -= 50;
+  else if (wVal >= 6) score -= 40;
+  else if (wVal >= 5) score -= 20;
+  else if (wVal >= 4) score -= 10;
+
+  if (gVal >= 10) score -= 10;
+
+  if (wCode !== null && wCode !== undefined) {
+    if (wCode >= 95) score -= 50;
+    else if (wCode >= 51) score -= 20;
+    else if (wCode === 45 || wCode === 48) score -= 10;
+  }
+
+  score = Math.max(10, Math.min(95, score));
+
+  const isHighWave = rowWave >= 1.5;
+  const isModWave = rowWave >= 1.0;
+  const isChoppy = isShortPeriod && hasChoppyWave;
+  const isHighSwell = swellWave !== null && swellWave !== undefined && swellWave >= 0.8;
+  const isThunder = wCode !== null && wCode >= 95;
+  const isRainOrSnow = wCode !== null && wCode >= 51;
+  const isFog = wCode === 45 || wCode === 48;
+
+  let adv = "";
+  if (isThunder) adv = "【出航中止推奨】落雷の危険あり。海上の釣行は極めて危険なため即時避難・中止を。";
+  else if (isHighWave || wVal >= 7) adv = "【出航中止推奨】強風・高波のため外洋は非常に危険。釣行は見合わせるべきレベル。";
+  else if (hour >= 18 || hour <= 4) adv = "【帰港・待機推奨】日没後～夜明け前は視界不良。ナイト便以外は航行を控えるべき時間。";
+  else if (isModWave || wVal >= 5) adv = "【注意して釣行】風波が立ち始めるコンディション。小型船は無理をせず操船に注意。";
+  else if (isChoppy) adv = "【三角波注意・釣行慎重】周期が短く船が叩かれる海況。減速航行・しぶきや船酔いに注意。";
+  else if (isHighSwell) adv = "【うねり注意・釣行慎重】大きなうねりあり。浅場・港入口の波立ちや上下動による船酔いに警戒。";
+  else if (isFog) adv = "【濃霧注意・出航慎重】海面は穏やかだが霧予報。視界不良の航行は危険なため減速徹底。";
+  else if (gVal >= 8) adv = "【突風注意・釣行可能】波は穏やかだが時折強いブローあり。仕掛け絡みやバランスに注意。";
+  else if (isRainOrSnow) adv = "【悪天候注意・釣行可能】海況は落ち着いているが雨・雪予報。視界や体温低下に注意。";
+  else if (score >= 85) adv = "【絶好の釣行日和】風波ともに落ち着いており釣りやすい極上コンディション。";
+  else if (score >= 65) adv = "【出航可能】問題なく釣行できるレベル。安全確認をして楽しもう。";
+  else adv = "【慎重に判断】複数の悪条件が重なっています。無理のない範囲で釣行を。";
+
+  return { score, adv };
+}
+
+// ==========================================
+// 3. APIデータ取得＆描画（並列高速取得）
+// ==========================================
+async function loadForecast() {
+  const resultArea = document.getElementById("resultArea");
+  resultArea.innerHTML = '<div class="loading">最新の気象・海況データを取得中...</div>';
+
+  const lat = selectedLat.toFixed(4);
+  const lon = selectedLon.toFixed(4);
+  document.getElementById("coordInfo").textContent = `緯度: ${lat}, 経度: ${lon}`;
+
+  const apiBase = "https" + "://api." + "open-meteo.com" + "/v1/forecast";
+  const marineBase = "https" + "://marine-api." + "open-meteo.com" + "/v1/marine";
+  const qCommon = "?latitude=" + lat + "&longitude=" + lon + "&timezone=Asia%2FTokyo";
+
+  const urls = {
+    wStd: apiBase + qCommon + "&hourly=temperature_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,precipitation_probability,weather_code&wind_speed_unit=ms&forecast_days=10",
+    mStd: marineBase + qCommon + "&hourly=wave_height,wave_period,wind_wave_height,swell_wave_height,wave_direction,sea_surface_temperature&forecast_days=10",
+    wEcmwf: apiBase + qCommon + "&hourly=temperature_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,weather_code&wind_speed_unit=ms&forecast_days=15&models=ecmwf_ifs",
+    mEcmwf: marineBase + qCommon + "&hourly=wave_height,wave_period,wind_wave_height,swell_wave_height,wave_direction,sea_surface_temperature&forecast_days=15"
+  };
+
+  try {
+    const [wStd, mStd, wEcmwf, mEcmwf] = await Promise.all([
+      fetch(urls.wStd).then(r => r.json()),
+      fetch(urls.mStd).then(r => r.json()),
+      fetch(urls.wEcmwf).then(r => r.json()),
+      fetch(urls.mEcmwf).then(r => r.json())
+    ]);
+
+    cachedData = {
+      std: buildRows(wStd.hourly, mStd.hourly, 9, true),
+      ecmwf: buildRows(wEcmwf.hourly, mEcmwf.hourly, 15, false)
+    };
+
+    const now = new Date();
+    document.getElementById("updateTime").textContent = `更新: ${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')}`;
+    renderTable();
+  } catch (err) {
+    resultArea.innerHTML = `<div class="loading" style="color:red;">データ取得エラー: ${err.message}</div>`;
+  }
+}
+
+function buildRows(wHourly, mHourly, maxDays, hasProb) {
+  const mMap = {};
+  if (mHourly && mHourly.time) {
+    mHourly.time.forEach((t, i) => {
+      mMap[t] = {
+        wave: mHourly.wave_height?.[i],
+        period: mHourly.wave_period?.[i],
+        windWave: mHourly.wind_wave_height?.[i],
+        swellWave: mHourly.swell_wave_height?.[i],
+        sst: mHourly.sea_surface_temperature?.[i] // ← 追加：海水温
+      };
+    });
+  }
+
+  const targetHours = new Set([6, 8, 10, 12, 14, 16, 18]);
+  const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const limitDate = new Date(todayStart);
+  limitDate.setDate(limitDate.getDate() + maxDays);
+  const rows = [];
+  wHourly.time.forEach((tStr, i) => {
+    const dt = new Date(tStr);
+    if (dt >= todayStart && dt < limitDate && targetHours.has(dt.getHours())) {
+      const m = mMap[tStr] || {};
+      const wind = wHourly.wind_speed_10m?.[i];
+      const gust = wHourly.wind_gusts_10m?.[i];
+      const wDir = wHourly.wind_direction_10m?.[i];
+      const temp = wHourly.temperature_2m?.[i];
+      const precip = wHourly.precipitation?.[i];
+      const prob = hasProb ? wHourly.precipitation_probability?.[i] : null;
+      const wCode = wHourly.weather_code?.[i];
+
+      const { score, adv } = calcIndexAndAdvice(m.wave, wind, gust, wCode, dt.getHours(), m.period, m.windWave, m.swellWave);
+
+      const ymd = `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}`;
+      const isHol = HOLIDAYS.has(ymd);
+      const wd = dt.getDay();
+      let dateBg = "";
+      if (isHol || wd === 0) dateBg = "bg-sun";
+      else if (wd === 6) dateBg = "bg-sat";
+
+      rows.push({
+        ymd, // ← 追加：日付の切り替わり判定用（例: "2026/11/27"）
+        dateLabel: `${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}(${weekdays[wd]}) ${String(dt.getHours()).padStart(2,'0')}:00`,
+        dateBg,
+        tide: getTideName(dt),
+        score, wave: m.wave, windWave: m.windWave, swellWave: m.swellWave, period: m.period,
+        wind, gust, wDir: degToDir(wDir), temp, sst: m.sst, weather: codeToWeather(wCode), precip, prob, adv
+      });
+    }
+  });
+  return rows;
+}
+
+function getColorClass(val, key) {
+  if (val === null || val === undefined || val === "-") return "";
+  const t = thresholds[key];
+  if (!t) return "";
+  if (t.mode === "ge") {
+    if (val >= t.blue) return "bg-blue";
+    if (val >= t.orange) return "bg-orange";
+    return "bg-pink";
+  } else {
+    if (val <= t.blue) return "bg-blue";
+    if (val <= t.orange) return "bg-orange";
+    return "bg-pink";
+  }
+}
+
+function renderTable() {
+  if (!cachedData) return;
+  const rows = cachedData[currentModel];
+  const showProb = (currentModel === "std");
+
+  let html = `<table><thead><tr>
+    <th>日時</th><th>潮回り</th><th>指数</th><th>波高</th><th>風波</th><th>うねり</th><th>周期</th>
+    <th>風速</th><th>最大瞬間</th><th>風向</th><th>気温</th><th>海水温</th><th>天気</th><th>降水量</th>
+    ${showProb ? '<th>降水確率</th>' : ''}
+    <th>釣行判断・アドバイス</th>
+  </tr></thead><tbody>`;
+
+  rows.forEach(r => {
+    html += `<tr>
+      <td class="${r.dateBg}">${r.dateLabel}</td>
+      <td>${r.tide}</td>
+      <td class="${getColorClass(r.score, 'score')}" style="font-weight:bold;">${r.score}</td>
+      <td class="${getColorClass(r.wave, 'wave')}">${r.wave != null ? r.wave.toFixed(2)+'m' : '-'}</td>
+      <td>${r.windWave != null ? r.windWave.toFixed(2)+'m' : '-'}</td>
+      <td>${r.swellWave != null ? r.swellWave.toFixed(2)+'m' : '-'}</td>
+      <td>${r.period != null ? r.period.toFixed(1)+'s' : '-'}</td>
+      <td class="${getColorClass(r.wind, 'wind')}">${r.wind != null ? r.wind.toFixed(1)+'m' : '-'}</td>
+      <td class="${getColorClass(r.gust, 'gust')}">${r.gust != null ? r.gust.toFixed(1)+'m' : '-'}</td>
+      <td>${r.wDir}</td>
+      <td>${r.temp != null ? r.temp.toFixed(1)+'℃' : '-'}</td>
+      <td>${r.sst != null ? r.sst.toFixed(1)+'℃' : '-'}</td>
+      <td>${r.weather}</td>
+      <td class="${getColorClass(r.precip, 'precip')}">${r.precip != null ? r.precip.toFixed(1)+'mm' : '-'}</td>
+      ${showProb ? `<td class="${getColorClass(r.prob, 'prob')}">${r.prob != null ? r.prob+'%' : '-'}</td>` : ''}
+      <td class="adv-cell">${r.adv}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table>`;
+  document.getElementById("resultArea").innerHTML = html;
+}
+
+// ==========================================
+// 4. 地図選択・Googleマップ座標抽出・UI操作
+// ==========================================
+function initMap() {
+  if (map) { setTimeout(() => map.invalidateSize(), 100); return; }
+  map = L.map('map').setView([selectedLat, selectedLon], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+  marker = L.marker([selectedLat, selectedLon]).addTo(map);
+  updateLatLonDisplay(selectedLat, selectedLon);
+
+  map.on('click', function(e) {
+    selectedLat = e.latlng.lat;
+    selectedLon = e.latlng.lng;
+    marker.setLatLng([selectedLat, selectedLon]);
+    updateLatLonDisplay(selectedLat, selectedLon);
+  });
+}
+
+function updateLatLonDisplay(lat, lon) {
+  document.getElementById("latLonDisplay").value = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+}
+
+function parseGmapInput() {
+  const raw = document.getElementById("gmapUrlInput").value.trim();
+  const match = raw.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+  if (match) {
+    selectedLat = parseFloat(match[1]);
+    selectedLon = parseFloat(match[2]);
+    if (map && marker) {
+      map.setView([selectedLat, selectedLon], 13);
+      marker.setLatLng([selectedLat, selectedLon]);
+    }
+    updateLatLonDisplay(selectedLat, selectedLon);
+    alert(`座標を取得しました: ${selectedLat.toFixed(4)}, ${selectedLon.toFixed(4)}`);
+  } else {
+    alert("URLやテキストから緯度・経度（例: 35.56, 133.32）が見つかりませんでした。\n地図をタップして指定するか、座標を直接入力してください。");
+  }
+}
+
+function saveAndFetchPoint() {
+  const name = document.getElementById("pointNameInput").value.trim() || `一時地点 (${selectedLat.toFixed(3)}, ${selectedLon.toFixed(3)})`;
+  // localStorageへの保存を削除し、画面上のリスト先頭に一時追加するだけにする
+  savedPoints.unshift({ name, lat: selectedLat, lon: selectedLon });
+  renderPointSelect();
+  document.getElementById("pointSelect").selectedIndex = 0;
+  togglePanel("mapPanel");
+  loadForecast();
+}
+
+function getCurrentLocation() {
+  if (!navigator.geolocation) {
+    alert("お使いのブラウザはGPS位置情報に対応していません。");
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(pos => {
+    selectedLat = pos.coords.latitude;
+    selectedLon = pos.coords.longitude;
+    document.getElementById("coordInfo").textContent = `現在地 (${selectedLat.toFixed(4)}, ${selectedLon.toFixed(4)})`;
+    loadForecast();
+  }, err => {
+    alert("現在地の取得に失敗しました（位置情報の許可を確認してください）。");
+  });
+}
+
+function togglePanel(id) {
+  const el = document.getElementById(id);
+  const isActive = el.classList.contains("active");
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  if (!isActive) {
+    el.classList.add("active");
+    if (id === "mapPanel") initMap();
+    if (id === "settingPanel") renderThresholdInputs();
+  }
+}
+
+function switchModel(model) {
+  currentModel = model;
+  document.getElementById("tabStd").classList.toggle("active", model === "std");
+  document.getElementById("tabEcmwf").classList.toggle("active", model === "ecmwf");
+  renderTable();
+}
+
+function renderPointSelect() {
+  const sel = document.getElementById("pointSelect");
+  sel.innerHTML = savedPoints.map((p, idx) => `<option value="${idx}">${p.name}</option>`).join("");
+}
+
+function onSelectPoint() {
+  const idx = document.getElementById("pointSelect").value;
+  const pt = savedPoints[idx];
+  if (pt) {
+    selectedLat = pt.lat;
+    selectedLon = pt.lon;
+    loadForecast();
+  }
+}
+
+function renderThresholdInputs() {
+  const container = document.getElementById("threshContainer");
+  let html = `<div style="font-weight:bold;">項目</div><div style="font-weight:bold; color:#0d47a1;">青基準</div><div style="font-weight:bold; color:#e65100;">橙基準</div>`;
+  for (const [key, obj] of Object.entries(thresholds)) {
+    html += `
+      <div>${obj.label}</div>
+      <div><input type="number" step="0.1" id="th_blue_${key}" value="${obj.blue}"></div>
+      <div><input type="number" step="0.1" id="th_orange_${key}" value="${obj.orange}"></div>
+    `;
+  }
+  container.innerHTML = html;
+}
+
+function saveThresholds() {
+  for (const key of Object.keys(thresholds)) {
+    thresholds[key].blue = parseFloat(document.getElementById(`th_blue_${key}`).value);
+    thresholds[key].orange = parseFloat(document.getElementById(`th_orange_${key}`).value);
+  }
+  localStorage.setItem("bw_thresholds", JSON.stringify(thresholds));
+  togglePanel("settingPanel");
+  renderTable();
+}
+
+function resetThresholds() {
+  thresholds = JSON.parse(JSON.stringify(DEFAULT_THRESHOLDS));
+  localStorage.setItem("bw_thresholds", JSON.stringify(thresholds));
+  renderThresholdInputs();
+  renderTable();
+}
+
+// 初期起動
+renderPointSelect();
+loadForecast();
+</script>
+</body>
+</html>
