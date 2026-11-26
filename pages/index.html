@@ -294,9 +294,9 @@ async function loadForecast() {
 
   const urls = {
     wStd: apiBase + qCommon + "&hourly=temperature_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,precipitation_probability,weather_code&wind_speed_unit=ms&forecast_days=10",
-    mStd: marineBase + qCommon + "&hourly=wave_height,wave_period,wind_wave_height,swell_wave_height,wave_direction&forecast_days=10",
+    mStd: marineBase + qCommon + "&hourly=wave_height,wave_period,wind_wave_height,swell_wave_height,wave_direction,sea_surface_temperature&forecast_days=10",
     wEcmwf: apiBase + qCommon + "&hourly=temperature_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,weather_code&wind_speed_unit=ms&forecast_days=15&models=ecmwf_ifs",
-    mEcmwf: marineBase + qCommon + "&hourly=wave_height,wave_period,wind_wave_height,swell_wave_height,wave_direction&forecast_days=15&models=ecmwf_wam"
+    mEcmwf: marineBase + qCommon + "&hourly=wave_height,wave_period,wind_wave_height,swell_wave_height,wave_direction,sea_surface_temperature&forecast_days=15"
   };
 
   try {
@@ -328,7 +328,8 @@ function buildRows(wHourly, mHourly, maxDays, hasProb) {
         wave: mHourly.wave_height?.[i],
         period: mHourly.wave_period?.[i],
         windWave: mHourly.wind_wave_height?.[i],
-        swellWave: mHourly.swell_wave_height?.[i]
+        swellWave: mHourly.swell_wave_height?.[i],
+        sst: mHourly.sea_surface_temperature?.[i] // ← 追加：海水温
       };
     });
   }
@@ -367,7 +368,7 @@ function buildRows(wHourly, mHourly, maxDays, hasProb) {
         dateBg,
         tide: getTideName(dt),
         score, wave: m.wave, windWave: m.windWave, swellWave: m.swellWave, period: m.period,
-        wind, gust, wDir: degToDir(wDir), temp, weather: codeToWeather(wCode), precip, prob, adv
+        wind, gust, wDir: degToDir(wDir), temp, sst: m.sst, weather: codeToWeather(wCode), precip, prob, adv
       });
     }
   });
@@ -396,17 +397,13 @@ function renderTable() {
 
   let html = `<table><thead><tr>
     <th>日時</th><th>潮回り</th><th>指数</th><th>波高</th><th>風波</th><th>うねり</th><th>周期</th>
-    <th>風速</th><th>最大瞬間</th><th>風向</th><th>気温</th><th>天気</th><th>降水量</th>
+    <th>風速</th><th>最大瞬間</th><th>風向</th><th>気温</th><th>海水温</th><th>天気</th><th>降水量</th>
     ${showProb ? '<th>降水確率</th>' : ''}
     <th>釣行判断・アドバイス</th>
   </tr></thead><tbody>`;
 
-  let prevYmd = null; // ← 追加：1つ前の行の日付を記憶する変数
   rows.forEach(r => {
-    const rowClass = (prevYmd && prevYmd !== r.ymd) ? ' class="day-border"' : ''; // ← 追加：日付が変わったらクラスを付与
-    prevYmd = r.ymd; // ← 追加：現在の日付を記憶
-
-    html += `<tr${rowClass}>
+    html += `<tr>
       <td class="${r.dateBg}">${r.dateLabel}</td>
       <td>${r.tide}</td>
       <td class="${getColorClass(r.score, 'score')}" style="font-weight:bold;">${r.score}</td>
@@ -418,6 +415,7 @@ function renderTable() {
       <td class="${getColorClass(r.gust, 'gust')}">${r.gust != null ? r.gust.toFixed(1)+'m' : '-'}</td>
       <td>${r.wDir}</td>
       <td>${r.temp != null ? r.temp.toFixed(1)+'℃' : '-'}</td>
+      <td>${r.sst != null ? r.sst.toFixed(1)+'℃' : '-'}</td>
       <td>${r.weather}</td>
       <td class="${getColorClass(r.precip, 'precip')}">${r.precip != null ? r.precip.toFixed(1)+'mm' : '-'}</td>
       ${showProb ? `<td class="${getColorClass(r.prob, 'prob')}">${r.prob != null ? r.prob+'%' : '-'}</td>` : ''}
