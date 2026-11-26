@@ -435,7 +435,15 @@ function renderTable() {
 // 4. 地図選択・Googleマップ座標抽出・UI操作
 // ==========================================
 function initMap() {
-  if (map) { setTimeout(() => map.invalidateSize(), 100); return; }
+  if (map) {
+    setTimeout(() => {
+      map.invalidateSize();
+      map.setView([selectedLat, selectedLon], 11); // ← 追加：現在選択中の座標へ地図を移動
+      marker.setLatLng([selectedLat, selectedLon]); // ← 追加：ピンも同じ座標へ移動
+      updateLatLonDisplay(selectedLat, selectedLon); // ← 追加：下の座標テキスト欄も更新
+    }, 100);
+    return;
+  }
   map = L.map('map').setView([selectedLat, selectedLon], 11);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap'
