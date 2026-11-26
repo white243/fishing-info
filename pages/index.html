@@ -64,6 +64,7 @@
   }
   table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 12px; }
   th, td { border: 1px solid #d0d7de; padding: 6px 5px; text-align: center; }
+  tr.day-border td { border-top: 2.5px solid #4a5568; } /* ← 追加：日付の境目の上線を太く濃くする */
   th { background: #f0f4f8; position: sticky; top: 0; z-index: 10; font-weight: bold; }
   th:first-child, td:first-child { position: sticky; left: 0; z-index: 5; background: #fff; font-weight: bold; }
   th:first-child { z-index: 15; background: #f0f4f8; }
@@ -361,6 +362,7 @@ function buildRows(wHourly, mHourly, maxDays, hasProb) {
       else if (wd === 6) dateBg = "bg-sat";
 
       rows.push({
+        ymd, // ← 追加：日付の切り替わり判定用（例: "2026/11/27"）
         dateLabel: `${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}(${weekdays[wd]}) ${String(dt.getHours()).padStart(2,'0')}:00`,
         dateBg,
         tide: getTideName(dt),
@@ -399,8 +401,12 @@ function renderTable() {
     <th>釣行判断・アドバイス</th>
   </tr></thead><tbody>`;
 
+  let prevYmd = null; // ← 追加：1つ前の行の日付を記憶する変数
   rows.forEach(r => {
-    html += `<tr>
+    const rowClass = (prevYmd && prevYmd !== r.ymd) ? ' class="day-border"' : ''; // ← 追加：日付が変わったらクラスを付与
+    prevYmd = r.ymd; // ← 追加：現在の日付を記憶
+
+    html += `<tr${rowClass}>
       <td class="${r.dateBg}">${r.dateLabel}</td>
       <td>${r.tide}</td>
       <td class="${getColorClass(r.score, 'score')}" style="font-weight:bold;">${r.score}</td>
