@@ -402,8 +402,12 @@ function renderTable() {
     <th>釣行判断・アドバイス</th>
   </tr></thead><tbody>`;
 
+  let prevYmd = null;
   rows.forEach(r => {
-    html += `<tr>
+    const rowClass = (prevYmd && prevYmd !== r.ymd) ? ' class="day-border"' : '';
+    prevYmd = r.ymd;
+
+    html += `<tr${rowClass}>
       <td class="${r.dateBg}">${r.dateLabel}</td>
       <td>${r.tide}</td>
       <td class="${getColorClass(r.score, 'score')}" style="font-weight:bold;">${r.score}</td>
