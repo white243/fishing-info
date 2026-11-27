@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>釣行海況・出航判断ナビ</title>
+<title>釣行海況・出航判断ナビ 0.0</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -58,13 +58,13 @@
 
   .status-bar { padding: 6px 12px; font-size: 12px; color: #555; display: flex; justify-content: space-between; }
   .table-wrap {
-    overflow: auto; /* 縦横両方のスクロールをこの枠内で完結させる */
-    max-height: calc(100vh - 145px); /* 画面の高さから上のヘッダー・タブ分を引いた高さに固定 */
+    overflow: auto;
+    max-height: calc(100vh - 145px);
     background: #fff;
   }
   table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 12px; }
   th, td { border: 1px solid #d0d7de; padding: 6px 5px; text-align: center; }
-  tr.day-border td { border-top: 2.5px solid #4a5568; } /* ← 追加：日付の境目の上線を太く濃くする */
+  tr.day-border td { border-top: 2.5px solid #4a5568; }
   th { background: #f0f4f8; position: sticky; top: 0; z-index: 10; font-weight: bold; }
   th:first-child, td:first-child { position: sticky; left: 0; z-index: 5; background: #fff; font-weight: bold; }
   th:first-child { z-index: 15; background: #f0f4f8; }
@@ -75,7 +75,6 @@
   .bg-sun { background-color: var(--c-sun) !important; }
   .bg-sat { background-color: var(--c-sat) !important; }
 
-  .adv-cell { text-align: left; white-space: normal; min-width: 500px; font-size: 11px; line-height: 1.3; }
   .loading { text-align: center; padding: 30px; font-weight: bold; color: var(--primary); }
 
   .thresh-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; font-size: 12px; align-items: center; }
@@ -137,7 +136,6 @@
 <div id="resultArea" class="table-wrap">
   <div class="loading">データを読み込み中...</div>
 </div>
-
 <script>
 // ==========================================
 // 1. 初期データ・定数（Python / VBA移植）
@@ -177,6 +175,7 @@ let cachedData = null;
 let map = null, marker = null;
 let selectedLat = savedPoints[0].lat;
 let selectedLon = savedPoints[0].lon;
+
 // ==========================================
 // 2. Pythonロジック完全移植（潮回り・天気・指数判定）
 // ==========================================
@@ -218,9 +217,9 @@ function codeToWeather(code) {
   return `コード(${code})`;
 }
 
-function calcIndexAndAdvice(rowWave, wind, gust, wCode, hour, wavePeriod, windWave, swellWave) {
+function calcIndex(rowWave, wind, gust, wCode, wavePeriod, windWave, swellWave) {
   if (wind === null || wind === undefined || rowWave === null || rowWave === undefined) {
-    return { score: "-", adv: "予報データなし" };
+    return "-";
   }
   const wVal = wind;
   const gVal = gust ?? 0;
@@ -250,31 +249,7 @@ function calcIndexAndAdvice(rowWave, wind, gust, wCode, hour, wavePeriod, windWa
     else if (wCode === 45 || wCode === 48) score -= 10;
   }
 
-  score = Math.max(10, Math.min(95, score));
-
-  const isHighWave = rowWave >= 1.5;
-  const isModWave = rowWave >= 1.0;
-  const isChoppy = isShortPeriod && hasChoppyWave;
-  const isHighSwell = swellWave !== null && swellWave !== undefined && swellWave >= 0.8;
-  const isThunder = wCode !== null && wCode >= 95;
-  const isRainOrSnow = wCode !== null && wCode >= 51;
-  const isFog = wCode === 45 || wCode === 48;
-
-  let adv = "";
-  if (isThunder) adv = "【出航中止推奨】落雷の危険あり。海上の釣行は極めて危険なため即時避難・中止を。";
-  else if (isHighWave || wVal >= 7) adv = "【出航中止推奨】強風・高波のため外洋は非常に危険。釣行は見合わせるべきレベル。";
-  else if (hour >= 18 || hour <= 4) adv = "【帰港・待機推奨】日没後～夜明け前は視界不良。ナイト便以外は航行を控えるべき時間。";
-  else if (isModWave || wVal >= 5) adv = "【注意して釣行】風波が立ち始めるコンディション。小型船は無理をせず操船に注意。";
-  else if (isChoppy) adv = "【三角波注意・釣行慎重】周期が短く船が叩かれる海況。減速航行・しぶきや船酔いに注意。";
-  else if (isHighSwell) adv = "【うねり注意・釣行慎重】大きなうねりあり。浅場・港入口の波立ちや上下動による船酔いに警戒。";
-  else if (isFog) adv = "【濃霧注意・出航慎重】海面は穏やかだが霧予報。視界不良の航行は危険なため減速徹底。";
-  else if (gVal >= 8) adv = "【突風注意・釣行可能】波は穏やかだが時折強いブローあり。仕掛け絡みやバランスに注意。";
-  else if (isRainOrSnow) adv = "【悪天候注意・釣行可能】海況は落ち着いているが雨・雪予報。視界や体温低下に注意。";
-  else if (score >= 85) adv = "【絶好の釣行日和】風波ともに落ち着いており釣りやすい極上コンディション。";
-  else if (score >= 65) adv = "【出航可能】問題なく釣行できるレベル。安全確認をして楽しもう。";
-  else adv = "【慎重に判断】複数の悪条件が重なっています。無理のない範囲で釣行を。";
-
-  return { score, adv };
+  return Math.max(10, Math.min(95, score));
 }
 
 // ==========================================
@@ -319,7 +294,6 @@ async function loadForecast() {
     resultArea.innerHTML = `<div class="loading" style="color:red;">データ取得エラー: ${err.message}</div>`;
   }
 }
-
 function buildRows(wHourly, mHourly, maxDays, hasProb) {
   const mMap = {};
   if (mHourly && mHourly.time) {
@@ -329,7 +303,7 @@ function buildRows(wHourly, mHourly, maxDays, hasProb) {
         period: mHourly.wave_period?.[i],
         windWave: mHourly.wind_wave_height?.[i],
         swellWave: mHourly.swell_wave_height?.[i],
-        sst: mHourly.sea_surface_temperature?.[i] // ← 追加：海水温
+        sst: mHourly.sea_surface_temperature?.[i]
       };
     });
   }
@@ -353,7 +327,7 @@ function buildRows(wHourly, mHourly, maxDays, hasProb) {
       const prob = hasProb ? wHourly.precipitation_probability?.[i] : null;
       const wCode = wHourly.weather_code?.[i];
 
-      const { score, adv } = calcIndexAndAdvice(m.wave, wind, gust, wCode, dt.getHours(), m.period, m.windWave, m.swellWave);
+      const score = calcIndex(m.wave, wind, gust, wCode, m.period, m.windWave, m.swellWave);
 
       const ymd = `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}`;
       const isHol = HOLIDAYS.has(ymd);
@@ -363,12 +337,12 @@ function buildRows(wHourly, mHourly, maxDays, hasProb) {
       else if (wd === 6) dateBg = "bg-sat";
 
       rows.push({
-        ymd, // ← 追加：日付の切り替わり判定用（例: "2026/11/27"）
+        ymd,
         dateLabel: `${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}(${weekdays[wd]}) ${String(dt.getHours()).padStart(2,'0')}:00`,
         dateBg,
         tide: getTideName(dt),
         score, wave: m.wave, windWave: m.windWave, swellWave: m.swellWave, period: m.period,
-        wind, gust, wDir: degToDir(wDir), temp, sst: m.sst, weather: codeToWeather(wCode), precip, prob, adv
+        wind, gust, wDir: degToDir(wDir), temp, sst: m.sst, weather: codeToWeather(wCode), precip, prob
       });
     }
   });
@@ -399,7 +373,6 @@ function renderTable() {
     <th>日時</th><th>潮回り</th><th>指数</th><th>波高</th><th>風波</th><th>うねり</th><th>周期</th>
     <th>風速</th><th>最大瞬間</th><th>風向</th><th>気温</th><th>海水温</th><th>天気</th><th>降水量</th>
     ${showProb ? '<th>降水確率</th>' : ''}
-    <th>釣行判断・アドバイス</th>
   </tr></thead><tbody>`;
 
   let prevYmd = null;
@@ -423,7 +396,6 @@ function renderTable() {
       <td>${r.weather}</td>
       <td class="${getColorClass(r.precip, 'precip')}">${r.precip != null ? r.precip.toFixed(1)+'mm' : '-'}</td>
       ${showProb ? `<td class="${getColorClass(r.prob, 'prob')}">${r.prob != null ? r.prob+'%' : '-'}</td>` : ''}
-      <td class="adv-cell">${r.adv}</td>
     </tr>`;
   });
 
@@ -438,9 +410,9 @@ function initMap() {
   if (map) {
     setTimeout(() => {
       map.invalidateSize();
-      map.setView([selectedLat, selectedLon], 11); // ← 追加：現在選択中の座標へ地図を移動
-      marker.setLatLng([selectedLat, selectedLon]); // ← 追加：ピンも同じ座標へ移動
-      updateLatLonDisplay(selectedLat, selectedLon); // ← 追加：下の座標テキスト欄も更新
+      map.setView([selectedLat, selectedLon], 11);
+      marker.setLatLng([selectedLat, selectedLon]);
+      updateLatLonDisplay(selectedLat, selectedLon);
     }, 100);
     return;
   }
@@ -482,7 +454,6 @@ function parseGmapInput() {
 
 function saveAndFetchPoint() {
   const name = document.getElementById("pointNameInput").value.trim() || `一時地点 (${selectedLat.toFixed(3)}, ${selectedLon.toFixed(3)})`;
-  // localStorageへの保存を削除し、画面上のリスト先頭に一時追加するだけにする
   savedPoints.unshift({ name, lat: selectedLat, lon: selectedLon });
   renderPointSelect();
   document.getElementById("pointSelect").selectedIndex = 0;
